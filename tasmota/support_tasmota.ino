@@ -543,6 +543,7 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
       power ^= mask;
     }
 	// Motor block: Never power more than one relays
+  
     if (power == 0x03) {
         power = 0x00;
     }
