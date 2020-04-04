@@ -542,6 +542,11 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
     case POWER_TOGGLE:
       power ^= mask;
     }
+	// Motor block: If attempt is made to switch on relay 0 and 1
+    // then turn both relays off
+    if (power == 0x03) {
+        power = 0x00;
+    }
 #ifdef USE_DEVICE_GROUPS
     if (SRC_REMOTE != source && SRC_RETRY != source) SendLocalDeviceGroupMessage(DGR_MSGTYP_UPDATE, DGR_ITEM_POWER, power);
 #endif  // USE_DEVICE_GROUPS
