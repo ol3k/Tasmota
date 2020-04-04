@@ -542,8 +542,7 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
     case POWER_TOGGLE:
       power ^= mask;
     }
-	// Motor block: If attempt is made to switch on relay 0 and 1
-    // then turn both relays off
+	// Motor block: Never power more than one relays
     if (power == 0x03) {
         power = 0x00;
     }
