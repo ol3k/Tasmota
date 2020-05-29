@@ -21,7 +21,7 @@ While fallback or downgrading is common practice it was never supported due to S
 
 ## Supported Core versions
 
-This release will be supported from ESP8266/Arduino library Core version **2.6.3 + e64cb61** due to reported security and stability issues on previous Core version. This will also support gzipped binaries.
+This release will be supported from ESP8266/Arduino library Core version **2.7.1** due to reported security and stability issues on previous Core version. This will also support gzipped binaries.
 
 Although it might still compile on previous Core versions all support will be removed in the near future.
 
@@ -35,7 +35,7 @@ For initial configuration this release supports Webserver based **WifiManager** 
 
 ## Provided Binary Downloads
 
-The following binary downloads have been compiled with ESP8266/Arduino library core version **2.6.3 + e64cb61**.
+The following binary downloads have been compiled with ESP8266/Arduino library core version **2.7.1**.
 
 - **tasmota.bin** = The Tasmota version with most drivers. **RECOMMENDED RELEASE BINARY**
 - **tasmota-BG.bin** to **tasmota-TW.bin** = The Tasmota version in different languages.
@@ -52,23 +52,19 @@ The following binary downloads have been compiled with ESP8266/Arduino library c
 
 ## Changelog
 
-### Version 8.2.0.3
+### Version 8.3.1.2
 
-- Change HM-10 sensor type detection and add features (#7962)
-- Change light scheme 2,3,4 cycle time speed from 24,48,72,... seconds to 4,6,12,24,36,48,... seconds (#8034)
-- Change remove floating point libs from IRAM
-- Change remove MQTT Info messages on restart for DeepSleep Wake (#8044)
-- Fix possible Relay toggle on (OTA) restart
-- Fix Zigbee sending wrong Sat value with Hue emulation
-- Add Zigbee command ``ZbRestore`` to restore device configuration dumped with ``ZbStatus 2``
-- Add Zigbee command ``ZbUnbind``
-- Add Zigbee command ``ZbBindState`` and ``manuf``attribute
-- Add commands ``CounterDebounceLow`` and ``CounterDebounceHigh`` to control debouncing (#8021)
-- Add command ``SetOption90 1`` to disable non-json MQTT messages (#8044)
-- Add command ``Sensor10 0/1/2`` to control BH1750 resolution - 0 = High (default), 1 = High2, 2 = Low (#8016)
-- Add command ``Sensor10 31..254`` to control BH1750 measurement time which defaults to 69 (#8016)
-- Add support for unreachable (unplugged) Zigbee devices in Philips Hue emulation and Alexa
-- Add support for 64x48 SSD1306 OLED (#6740)
-- Add support for up to four MQTT GroupTopics using the same optional Device Group names (#8014)
-- Add console command history (#7483, #8015)
-- Add support for longer template names
+- Change IRremoteESP8266 library updated to v2.7.7
+- Change Adafruit_SGP30 library from v1.0.3 to v1.2.0 (#8519)
+- Change Energy JSON Total field from ``"Total":[33.736,11.717,16.978]`` to ``"Total":33.736,"TotalTariff":[11.717,16.978]``
+- Change Energy JSON ExportActive field from ``"ExportActive":[33.736,11.717,16.978]`` to ``"ExportActive":33.736,"ExportTariff":[11.717,16.978]``
+- Fix escape of non-JSON received serial data (#8329)
+- Add command ``Rule0`` to change global rule parameters
+- Add command ``Time 4`` to display timestamp using milliseconds (#8537)
+- Add commands ``LedPwmOn 0..255``, ``LedPwmOff 0..255`` and ``LedPwmMode1 0/1`` to control led brightness by George (#8491)
+- Add support for unique MQTTClient (and inherited fallback topic) by full Mac address using ``mqttclient DVES_%12X`` (#8300)
+- Add more functionality to ``Switchmode`` 11 and 12 (#8450)
+- Add wildcard pattern ``?`` for JSON matching in rules
+- Add support for VEML6075 UVA/UVB/UVINDEX Sensor by device111 (#8432)
+- Add support for VEML7700 Ambient light intensity Sensor by device111 (#8432)
+- Add Three Phase Export Active Energy to SDM630 driver

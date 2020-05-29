@@ -65,7 +65,7 @@ typedef int32_t (*Z_DeviceTimer)(uint16_t shortaddr, uint16_t groupaddr, uint16_
 typedef enum Z_Def_Category {
   Z_CAT_NONE = 0,             // no category, it will happen anyways
   Z_CAT_READ_ATTR,            // Attribute reporting, either READ_ATTRIBUTE or REPORT_ATTRIBUTE, we coalesce all attributes reported if we can
-  Z_CAT_VIRTUAL_ATTR,         // Creation of a virtual attribute, typically after a time-out. Ex: Aqara presence sensor
+  Z_CAT_VIRTUAL_OCCUPANCY,    // Creation of a virtual attribute, typically after a time-out. Ex: Aqara presence sensor
   Z_CAT_REACHABILITY,         // timer set to measure reachability of device, i.e. if we don't get an answer after 1s, it is marked as unreachable (for Alexa)
   Z_CAT_READ_0006,            // Read 0x0006 cluster
   Z_CAT_READ_0008,            // Read 0x0008 cluster
@@ -103,7 +103,7 @@ public:
   // Probe the existence of device keys
   // Results:
   // - 0x0000 = not found
-  // - 0xFFFF = bad parameter
+  // - BAD_SHORTADDR = bad parameter
   // - 0x<shortaddr> = the device's short address
   uint16_t isKnownShortAddr(uint16_t shortaddr) const;
   uint16_t isKnownLongAddr(uint64_t  longaddr) const;
@@ -127,6 +127,7 @@ public:
   void setFriendlyName(uint16_t shortaddr, const char * str);
   const char * getFriendlyName(uint16_t shortaddr) const;
   const char * getModelId(uint16_t shortaddr) const;
+  const char * getManufacturerId(uint16_t shortaddr) const;
   void setReachable(uint16_t shortaddr, bool reachable);
 
   // get next sequence number for (increment at each all)
@@ -294,18 +295,16 @@ void Z_Devices::freeDeviceEntry(Z_Device *device) {
 // Scan all devices to find a corresponding shortaddr
 // Looks info device.shortaddr entry
 // In:
-//    shortaddr (non null)
+//    shortaddr (not BAD_SHORTADDR)
 // Out:
 //    index in _devices of entry, -1 if not found
 //
 int32_t Z_Devices::findShortAddr(uint16_t shortaddr) const {
-  if (!shortaddr) { return -1; }              // does not make sense to look for 0x0000 shortaddr (localhost)
+  if (BAD_SHORTADDR == shortaddr) { return -1; }              // does not make sense to look for BAD_SHORTADDR shortaddr (broadcast)
   int32_t found = 0;
-  if (shortaddr) {
-    for (auto &elem : _devices) {
-      if (elem->shortaddr == shortaddr) { return found; }
-      found++;
-    }
+  for (auto &elem : _devices) {
+    if (elem->shortaddr == shortaddr) { return found; }
+    found++;
   }
   return -1;
 }
@@ -320,11 +319,9 @@ int32_t Z_Devices::findShortAddr(uint16_t shortaddr) const {
 int32_t Z_Devices::findLongAddr(uint64_t longaddr) const {
   if (!longaddr) { return -1; }
   int32_t found = 0;
-  if (longaddr) {
-    for (auto &elem : _devices) {
-      if (elem->longaddr == longaddr) { return found; }
-      found++;
-    }
+  for (auto &elem : _devices) {
+    if (elem->longaddr == longaddr) { return found; }
+    found++;
   }
   return -1;
 }
@@ -357,7 +354,7 @@ uint16_t Z_Devices::isKnownShortAddr(uint16_t shortaddr) const {
   if (found >= 0) {
     return shortaddr;
   } else {
-    return 0;   // unknown
+    return BAD_SHORTADDR;   // unknown
   }
 }
 
@@ -367,7 +364,7 @@ uint16_t Z_Devices::isKnownLongAddr(uint64_t longaddr) const {
     const Z_Device & device = devicesAt(found);
     return device.shortaddr;    // can be zero, if not yet registered
   } else {
-    return 0;
+    return BAD_SHORTADDR;
   }
 }
 
@@ -376,18 +373,18 @@ uint16_t Z_Devices::isKnownIndex(uint32_t index) const {
     const Z_Device & device = devicesAt(index);
     return device.shortaddr;
   } else {
-    return 0;
+    return BAD_SHORTADDR;
   }
 }
 
 uint16_t Z_Devices::isKnownFriendlyName(const char * name) const {
-  if ((!name) || (0 == strlen(name))) { return 0xFFFF; }         // Error
+  if ((!name) || (0 == strlen(name))) { return BAD_SHORTADDR; }         // Error
   int32_t found = findFriendlyName(name);
   if (found >= 0) {
     const Z_Device & device = devicesAt(found);
     return device.shortaddr;    // can be zero, if not yet registered
   } else {
-    return 0;
+    return BAD_SHORTADDR;
   }
 }
 
@@ -397,10 +394,10 @@ uint64_t Z_Devices::getDeviceLongAddr(uint16_t shortaddr) const {
 }
 
 //
-// We have a seen a shortaddr on the network, get the corresponding
+// We have a seen a shortaddr on the network, get the corresponding device object
 //
 Z_Device & Z_Devices::getShortAddr(uint16_t shortaddr) {
-  if (!shortaddr) { return *(Z_Device*) nullptr; }   // this is not legal
+  if (BAD_SHORTADDR == shortaddr) { return *(Z_Device*) nullptr; }   // this is not legal
   int32_t found = findShortAddr(shortaddr);
   if (found >= 0) {
     return *(_devices[found]);
@@ -410,7 +407,7 @@ Z_Device & Z_Devices::getShortAddr(uint16_t shortaddr) {
 }
 // Same version but Const
 const Z_Device & Z_Devices::getShortAddrConst(uint16_t shortaddr) const {
-  if (!shortaddr) { return *(Z_Device*) nullptr; }   // this is not legal
+  if (BAD_SHORTADDR == shortaddr) { return *(Z_Device*) nullptr; }   // this is not legal
   int32_t found = findShortAddr(shortaddr);
   if (found >= 0) {
     return *(_devices[found]);
@@ -470,7 +467,7 @@ void Z_Devices::updateDevice(uint16_t shortaddr, uint64_t longaddr) {
     dirty();
   } else {
     // neither short/lonf addr are found.
-    if (shortaddr || longaddr) {
+    if ((BAD_SHORTADDR != shortaddr) || longaddr) {
       createDeviceEntry(shortaddr, longaddr);
     }
   }
@@ -480,7 +477,6 @@ void Z_Devices::updateDevice(uint16_t shortaddr, uint64_t longaddr) {
 // Clear all endpoints
 //
 void Z_Devices::clearEndpoints(uint16_t shortaddr) {
-  if (!shortaddr) { return; }
   Z_Device &device = getShortAddr(shortaddr);
   if (&device == nullptr) { return; }                 // don't crash if not found
 
@@ -494,7 +490,6 @@ void Z_Devices::clearEndpoints(uint16_t shortaddr) {
 // Add an endpoint to a shortaddr
 //
 void Z_Devices::addEndpoint(uint16_t shortaddr, uint8_t endpoint) {
-  if (!shortaddr) { return; }
   if (0x00 == endpoint) { return; }
   Z_Device &device = getShortAddr(shortaddr);
   if (&device == nullptr) { return; }                 // don't crash if not found
@@ -585,6 +580,15 @@ const char * Z_Devices::getModelId(uint16_t shortaddr) const {
   if (found >= 0) {
     const Z_Device & device = devicesAt(found);
     return device.modelId;
+  }
+  return nullptr;
+}
+
+const char * Z_Devices::getManufacturerId(uint16_t shortaddr) const {
+  int32_t found = findShortAddr(shortaddr);
+  if (found >= 0) {
+    const Z_Device & device = devicesAt(found);
+    return device.manufacturerId;
   }
   return nullptr;
 }
@@ -706,6 +710,7 @@ void Z_Devices::setTimer(uint16_t shortaddr, uint16_t groupaddr, uint32_t wait_m
 }
 
 // Run timer at each tick
+// WARNING: don't set a new timer within a running timer, this causes memory corruption
 void Z_Devices::runTimer(void) {
   // visit all timers
   for (auto it = _deferred.begin(); it != _deferred.end(); it++) {
@@ -911,7 +916,7 @@ uint16_t Z_Devices::parseDeviceParam(const char * param, bool short_must_be_know
   char dataBuf[param_len + 1];
   strcpy(dataBuf, param);
   RemoveSpace(dataBuf);
-  uint16_t shortaddr = 0;
+  uint16_t shortaddr = BAD_SHORTADDR;    // start with unknown
 
   if (strlen(dataBuf) < 4) {
     // simple number 0..99
@@ -1007,8 +1012,8 @@ String Z_Devices::dump(uint32_t dump_mode, uint16_t status_shortaddr) const {
     uint16_t shortaddr = device.shortaddr;
     char hex[22];
 
-    // ignore non-current device, if specified device is non-zero
-    if ((status_shortaddr) && (status_shortaddr != shortaddr)) { continue; }
+    // ignore non-current device, if device specified
+    if ((BAD_SHORTADDR != status_shortaddr) && (status_shortaddr != shortaddr)) { continue; }
 
     JsonObject& dev = devices.createNestedObject();
 
@@ -1070,7 +1075,7 @@ int32_t Z_Devices::deviceRestore(const JsonObject &json) {
   size_t   endpoints_len = 0;
 
   // read mandatory "Device"
-  const JsonVariant &val_device = getCaseInsensitive(json, PSTR("Device"));
+  const JsonVariant &val_device = GetCaseInsensitive(json, PSTR("Device"));
   if (nullptr != &val_device) {
     device = strToUInt(val_device);
   } else {
@@ -1078,7 +1083,7 @@ int32_t Z_Devices::deviceRestore(const JsonObject &json) {
   }
 
   // read "IEEEAddr" 64 bits in format "0x0000000000000000"
-  const JsonVariant &val_ieeeaddr = getCaseInsensitive(json, PSTR("IEEEAddr"));
+  const JsonVariant &val_ieeeaddr = GetCaseInsensitive(json, PSTR("IEEEAddr"));
   if (nullptr != &val_ieeeaddr) {
     ieeeaddr = strtoull(val_ieeeaddr.as<const char*>(), nullptr, 0);
   }
@@ -1093,7 +1098,7 @@ int32_t Z_Devices::deviceRestore(const JsonObject &json) {
   manufid = getCaseInsensitiveConstCharNull(json, PSTR("Manufacturer"));
 
   // read "Light"
-  const JsonVariant &val_bulbtype = getCaseInsensitive(json, PSTR(D_JSON_ZIGBEE_LIGHT));
+  const JsonVariant &val_bulbtype = GetCaseInsensitive(json, PSTR(D_JSON_ZIGBEE_LIGHT));
   if (nullptr != &val_bulbtype) { bulbtype = strToUInt(val_bulbtype);; }
 
   // update internal device information
@@ -1104,7 +1109,7 @@ int32_t Z_Devices::deviceRestore(const JsonObject &json) {
   if (&val_bulbtype) { setHueBulbtype(device, bulbtype); }
 
   // read "Endpoints"
-  const JsonVariant &val_endpoints = getCaseInsensitive(json, PSTR("Endpoints"));
+  const JsonVariant &val_endpoints = GetCaseInsensitive(json, PSTR("Endpoints"));
   if ((nullptr != &val_endpoints) && (val_endpoints.is<JsonArray>())) {
     const JsonArray &arr_ep = val_endpoints.as<const JsonArray&>();
     endpoints_len = arr_ep.size();

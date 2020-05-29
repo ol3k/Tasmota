@@ -86,9 +86,9 @@ void SwitchProbe(void)
   uint8_t force_low = (Settings.switch_debounce % 50) &2;                    // 52, 102, 152 etc
 
   for (uint32_t i = 0; i < MAX_SWITCHES; i++) {
-    if (pin[GPIO_SWT1 +i] < 99) {
+    if (PinUsed(GPIO_SWT1, i)) {
       // Olimex user_switch2.c code to fix 50Hz induced pulses
-      if (1 == digitalRead(pin[GPIO_SWT1 +i])) {
+      if (1 == digitalRead(Pin(GPIO_SWT1, i))) {
 
         if (force_high) {                               // Enabled with SwitchDebounce x1
           if (1 == Switch.virtual_state[i]) {
@@ -127,10 +127,10 @@ void SwitchInit(void)
   Switch.present = 0;
   for (uint32_t i = 0; i < MAX_SWITCHES; i++) {
     Switch.last_state[i] = 1;  // Init global to virtual switch state;
-    if (pin[GPIO_SWT1 +i] < 99) {
+    if (PinUsed(GPIO_SWT1, i)) {
       Switch.present++;
-      pinMode(pin[GPIO_SWT1 +i], bitRead(Switch.no_pullup_mask, i) ? INPUT : ((16 == pin[GPIO_SWT1 +i]) ? INPUT_PULLDOWN_16 : INPUT_PULLUP));
-      Switch.last_state[i] = digitalRead(pin[GPIO_SWT1 +i]);  // Set global now so doesn't change the saved power state on first switch check
+      pinMode(Pin(GPIO_SWT1, i), bitRead(Switch.no_pullup_mask, i) ? INPUT : ((16 == Pin(GPIO_SWT1, i)) ? INPUT_PULLDOWN_16 : INPUT_PULLUP));
+      Switch.last_state[i] = digitalRead(Pin(GPIO_SWT1, i));  // Set global now so doesn't change the saved power state on first switch check
     }
     Switch.virtual_state[i] = Switch.last_state[i];
   }
@@ -148,14 +148,21 @@ void SwitchHandler(uint8_t mode)
   uint16_t loops_per_second = 1000 / Settings.switch_debounce;
 
   for (uint32_t i = 0; i < MAX_SWITCHES; i++) {
-    if ((pin[GPIO_SWT1 +i] < 99) || (mode)) {
+    if (PinUsed(GPIO_SWT1, i) || (mode)) {
       uint8_t button = Switch.virtual_state[i];
       uint8_t switchflag = POWER_TOGGLE +1;
 
       if (Switch.hold_timer[i]) {
         Switch.hold_timer[i]--;
+        if (Switch.hold_timer[i] == loops_per_second * Settings.param[P_HOLD_TIME] / 25) {
+          if ((Settings.switchmode[i] == PUSHHOLDMULTI) & (NOT_PRESSED == Switch.last_state[i])) {
+            SendKey(KEY_SWITCH, i +1, POWER_INCREMENT);  // Execute command via MQTT
+          }
+          if ((Settings.switchmode[i] == PUSHHOLDMULTI_INV) & (PRESSED == Switch.last_state[i])) {
+            SendKey(KEY_SWITCH, i +1, POWER_INCREMENT);  // Execute command via MQTT
+          }
+        }
         if (0 == Switch.hold_timer[i]) {
-
           switch (Settings.switchmode[i]) {
             case TOGGLEMULTI:
               switchflag = POWER_TOGGLE;     // Toggle after hold
@@ -202,51 +209,33 @@ void SwitchHandler(uint8_t mode)
           switchflag = ~button &1;       // Follow inverted wall switch state
           break;
         case PUSHBUTTON:
-//          if ((PRESSED == button) && (NOT_PRESSED == Switch.last_state[i])) {
           if (PRESSED == button) {
             switchflag = POWER_TOGGLE;   // Toggle with pushbutton to Gnd
           }
           break;
         case PUSHBUTTON_INV:
-//          if ((NOT_PRESSED == button) && (PRESSED == Switch.last_state[i])) {
           if (NOT_PRESSED == button) {
             switchflag = POWER_TOGGLE;   // Toggle with releasing pushbutton from Gnd
           }
           break;
         case PUSHBUTTONHOLD:
-//          if ((PRESSED == button) && (NOT_PRESSED == Switch.last_state[i])) {
           if (PRESSED == button) {
             Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;  // Start timer on button press
           }
-//          if ((NOT_PRESSED == button) && (PRESSED == Switch.last_state[i]) && (Switch.hold_timer[i])) {
           if ((NOT_PRESSED == button) && (Switch.hold_timer[i])) {
             Switch.hold_timer[i] = 0;    // Button released and hold timer not expired : stop timer...
             switchflag = POWER_TOGGLE;   // ...and Toggle
           }
           break;
         case PUSHBUTTONHOLD_INV:
-//          if ((NOT_PRESSED == button) && (PRESSED == Switch.last_state[i])) {
           if (NOT_PRESSED == button) {
             Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;  // Start timer on button press...
           }
-//          if ((PRESSED == button) && (NOT_PRESSED == Switch.last_state[i]) && (Switch.hold_timer[i])) {
           if ((PRESSED == button) && (Switch.hold_timer[i])) {
             Switch.hold_timer[i] = 0;    // Button released and hold timer not expired : stop timer.
             switchflag = POWER_TOGGLE;   // ...and Toggle
           }
           break;
-/*
-        // Reverted Fix switchmode 6 according to issue 7778 (#7831)
-        case PUSHBUTTONHOLD_INV:
-          if ((PRESSED == button) && (NOT_PRESSED == Switch.last_state[i])) {
-            Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;  // Start timer on button press...
-            switchflag = POWER_TOGGLE;   // ...and Toggle
-          }
-          if ((NOT_PRESSED == button) && (PRESSED == Switch.last_state[i])) {
-            Switch.hold_timer[i] = 0;   // Button released : stop timer.
-          }
-          break;
-*/
         case TOGGLEMULTI:
         case FOLLOWMULTI:
         case FOLLOWMULTI_INV:
@@ -258,36 +247,32 @@ void SwitchHandler(uint8_t mode)
           }
           break;
         case PUSHHOLDMULTI:
-//          if ((NOT_PRESSED == button) && (PRESSED == Switch.last_state[i])) {
           if (NOT_PRESSED == button) {
             if (Switch.hold_timer[i] != 0) {
               SendKey(KEY_SWITCH, i +1, POWER_INV);  // Execute command via MQTT
             }
-            Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;
-          }
-//          if ((PRESSED == button) && (NOT_PRESSED == Switch.last_state[i])) {
-          if (PRESSED == button) {
+          } else {
             if (Switch.hold_timer[i] > loops_per_second * Settings.param[P_HOLD_TIME] / 25) {
               switchflag = POWER_TOGGLE;   // Toggle with pushbutton
+            } else {
+              SendKey(KEY_SWITCH, i +1, POWER_RELEASE);  // Execute command via MQTT
             }
-            Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;
           }
+          Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;
           break;
         case PUSHHOLDMULTI_INV:
-//          if ((PRESSED == button) && (NOT_PRESSED == Switch.last_state[i])) {
           if (PRESSED == button) {
             if (Switch.hold_timer[i] != 0) {
               SendKey(KEY_SWITCH, i +1, POWER_INV);  // Execute command via MQTT
             }
-            Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;
-          }
-//          if ((NOT_PRESSED == button) && (PRESSED == Switch.last_state[i])) {
-          if (NOT_PRESSED == button) {
+          } else {
             if (Switch.hold_timer[i] > loops_per_second * Settings.param[P_HOLD_TIME] / 25) {
               switchflag = POWER_TOGGLE;   // Toggle with pushbutton
+            } else {
+              SendKey(KEY_SWITCH, i +1, POWER_RELEASE);  // Execute command via MQTT
             }
-            Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;
           }
+          Switch.hold_timer[i] = loops_per_second * Settings.param[P_HOLD_TIME] / 10;
           break;
         case PUSHON:
           if (PRESSED == button) {

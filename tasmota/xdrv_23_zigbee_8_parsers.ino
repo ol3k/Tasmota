@@ -52,7 +52,7 @@ int32_t Z_ReceiveDeviceInfo(int32_t res, class SBuffer &buf) {
                   ZIGBEE_STATUS_CC_INFO, hex, short_adr, device_type, device_state,
                   device_associated);
 
-  if (device_associated > 0) {
+  if (device_associated > 0) {    // If there are devices registered in CC2530, print the list
     uint idx = 16;
     ResponseAppend_P(PSTR(",\"AssocDevicesList\":["));
     for (uint32_t i = 0; i < device_associated; i++) {
@@ -87,18 +87,20 @@ int32_t Z_Reboot(int32_t res, class SBuffer &buf) {
   // print information about the reboot of device
   // 4180.02.02.00.02.06.03
   //
-  static const char     Z_RebootReason[] PROGMEM = "Power-up|External|Watchdog";
-  
   uint8_t reason = buf.get8(2);
   uint8_t transport_rev = buf.get8(3);
   uint8_t product_id = buf.get8(4);
   uint8_t major_rel = buf.get8(5);
   uint8_t minor_rel = buf.get8(6);
   uint8_t hw_rev = buf.get8(7);
-  char reason_str[12];
+  const char *reason_str;
 
-  if (reason > 3) { reason = 3; }
-  GetTextIndexed(reason_str, sizeof(reason_str), reason, Z_RebootReason);
+  switch (reason) {
+    case 0:  reason_str = PSTR("Power-up"); break;
+    case 1:  reason_str = PSTR("External"); break;
+    case 2:  reason_str = PSTR("Watchdog"); break;
+    default: reason_str = PSTR("Unknown");  break;
+  }
 
   Response_P(PSTR("{\"" D_JSON_ZIGBEE_STATE "\":{"
                   "\"Status\":%d,\"Message\":\"CC2530 booted\",\"RestartReason\":\"%s\""
@@ -147,6 +149,18 @@ int32_t Z_ReceiveCheckVersion(int32_t res, class SBuffer &buf) {
   }
 }
 
+// checks the device type (coordinator, router, end-device)
+// If coordinator continue
+// If router goto ZIGBEE_LABEL_START_ROUTER
+// If device goto ZIGBEE_LABEL_START_DEVICE
+int32_t Z_SwitchDeviceType(int32_t res, class SBuffer &buf) {
+  switch (Settings.zb_pan_id) {
+    case 0xFFFF:    return ZIGBEE_LABEL_INIT_ROUTER;
+    case 0xFFFE:    return ZIGBEE_LABEL_INIT_DEVICE;
+    default:        return 0;   // continue
+  }
+}
+
 //
 // Helper function, checks if the incoming buffer matches the 2-bytes prefix, i.e. message type in PMEM
 //
@@ -189,7 +203,6 @@ int32_t Z_ReceivePermitJoinStatus(int32_t res, const class SBuffer &buf) {
   return -1;
 }
 
-const char* Z_DeviceType[] = { "Coordinator", "Router", "End Device", "Unknown" };
 int32_t Z_ReceiveNodeDesc(int32_t res, const class SBuffer &buf) {
   // Received ZDO_NODE_DESC_RSP
   Z_ShortAddress    srcAddr = buf.get16(2);
@@ -205,15 +218,22 @@ int32_t Z_ReceiveNodeDesc(int32_t res, const class SBuffer &buf) {
   uint16_t          maxOutTransferSize = buf.get16(17);
   uint8_t           descriptorCapabilities = buf.get8(19);
 
+
   if (0 == status) {
     uint8_t           deviceType = logicalType & 0x7;   // 0=coordinator, 1=router, 2=end device
-    if (deviceType > 3) { deviceType = 3; }
+    const char *      deviceTypeStr;
+    switch (deviceType) {
+      case 0:  deviceTypeStr = PSTR("Coordinator"); break;
+      case 1:  deviceTypeStr = PSTR("Router"); break;
+      case 2:  deviceTypeStr = PSTR("Device"); break;
+      default: deviceTypeStr = PSTR("Unknown");  break;
+    }
     bool              complexDescriptorAvailable = (logicalType & 0x08) ? 1 : 0;
 
     Response_P(PSTR("{\"" D_JSON_ZIGBEE_STATE "\":{"
                     "\"Status\":%d,\"NodeType\":\"%s\",\"ComplexDesc\":%s}}"),
-                    ZIGBEE_STATUS_NODE_DESC, Z_DeviceType[deviceType],
-                    complexDescriptorAvailable ? "true" : "false"
+                    ZIGBEE_STATUS_NODE_DESC, deviceTypeStr,
+                    complexDescriptorAvailable ? PSTR("true") : PSTR("false")
                     );
 
     MqttPublishPrefixTopic_P(RESULT_OR_TELE, PSTR(D_JSON_ZIGBEEZCL_RECEIVED));
@@ -270,15 +290,13 @@ int32_t Z_ReceiveIEEEAddr(int32_t res, const class SBuffer &buf) {
     Uint64toHex(ieeeAddr, hex, 64);
     // Ping response
     const char * friendlyName = zigbee_devices.getFriendlyName(nwkAddr);
+
+    Response_P(PSTR("{\"" D_JSON_ZIGBEE_PING "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
+                    ",\"" D_JSON_ZIGBEE_IEEE "\":\"0x%s\""), nwkAddr, hex);
     if (friendlyName) {
-      Response_P(PSTR("{\"" D_JSON_ZIGBEE_PING "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
-                      ",\"" D_JSON_ZIGBEE_IEEE "\":\"0x%s\""
-                      ",\"" D_JSON_ZIGBEE_NAME "\":\"%s\"}}"), nwkAddr, hex, friendlyName);
-    } else {
-      Response_P(PSTR("{\"" D_JSON_ZIGBEE_PING "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
-                      ",\"" D_JSON_ZIGBEE_IEEE "\":\"0x%s\""
-                      "}}"), nwkAddr, hex);
+      ResponseAppend_P(PSTR(",\"" D_JSON_ZIGBEE_NAME "\":\"%s\""), friendlyName);
     }
+    ResponseAppend_P(PSTR("\"}}"));
 
     MqttPublishPrefixTopic_P(RESULT_OR_TELE, PSTR(D_JSON_ZIGBEEZCL_RECEIVED));
     XdrvRulesProcess();
@@ -307,6 +325,67 @@ int32_t Z_DataConfirm(int32_t res, const class SBuffer &buf) {
 }
 
 //
+// Handle State Change Indication incoming message
+//
+// Reference:
+// 0x00: Initialized - not started automatically
+// 0x01: Initialized - not connected to anything
+// 0x02: Discovering PAN's to join
+// 0x03: Joining a PAN
+// 0x04: Rejoining a PAN, only for end devices
+// 0x05: Joined but not yet authenticated by trust center
+// 0x06: Started as device after authentication
+// 0x07: Device joined, authenticated and is a router
+// 0x08: Starting as ZigBee Coordinator
+// 0x09: Started as ZigBee Coordinator
+// 0x0A: Device has lost information about its parent
+int32_t Z_ReceiveStateChange(int32_t res, const class SBuffer &buf) {
+  uint8_t           state = buf.get8(2);
+  const char *      msg = nullptr;
+
+  switch (state) {
+    case ZDO_DEV_NWK_DISC:                        // 0x02
+      msg = PSTR("Scanning Zigbee network");
+      break;
+    case ZDO_DEV_NWK_JOINING:                     // 0x03
+    case ZDO_DEV_NWK_REJOIN:                      // 0x04
+      msg = PSTR("Joining a PAN");
+      break;
+    case ZDO_DEV_END_DEVICE_UNAUTH:               // 0x05
+      msg = PSTR("Joined, not yet authenticated");
+      break;
+    case ZDO_DEV_END_DEVICE:                      // 0x06
+      msg = PSTR("Started as device");
+      break;
+    case ZDO_DEV_ROUTER:                          // 0x07
+      msg = PSTR("Started as router");
+      break;
+    case ZDO_DEV_ZB_COORD:                        // 0x09
+      msg = PSTR("Started as coordinator");
+      break;
+    case ZDO_DEV_NWK_ORPHAN:                      // 0x0A
+      msg = PSTR("Device has lost its parent");
+      break;
+  };
+
+  if (msg) {
+    Response_P(PSTR("{\"" D_JSON_ZIGBEE_STATE "\":{"
+                    "\"Status\":%d,\"NewState\":%d,\"Message\":\"%s\"}}"),
+                    ZIGBEE_STATUS_SCANNING, state, msg
+                    );
+
+    MqttPublishPrefixTopic_P(RESULT_OR_TELE, PSTR(D_JSON_ZIGBEEZCL_RECEIVED));
+    XdrvRulesProcess();
+  }
+
+  if ((ZDO_DEV_END_DEVICE == state) || (ZDO_DEV_ROUTER == state) || (ZDO_DEV_ZB_COORD == state)) {
+    return 0;         // device sucessfully started
+  } else {
+    return -1;        // ignore
+  }
+}
+
+//
 // Handle Receive End Device Announce incoming message
 // This message is also received when a previously paired device is powered up
 // Send back Active Ep Req message
@@ -325,9 +404,9 @@ int32_t Z_ReceiveEndDeviceAnnonce(int32_t res, const class SBuffer &buf) {
                   "\"Status\":%d,\"IEEEAddr\":\"0x%s\",\"ShortAddr\":\"0x%04X\""
                   ",\"PowerSource\":%s,\"ReceiveWhenIdle\":%s,\"Security\":%s}}"),
                   ZIGBEE_STATUS_DEVICE_ANNOUNCE, hex, nwkAddr,
-                  (capabilities & 0x04) ? "true" : "false",
-                  (capabilities & 0x08) ? "true" : "false",
-                  (capabilities & 0x40) ? "true" : "false"
+                  (capabilities & 0x04) ? PSTR("true") : PSTR("false"),
+                  (capabilities & 0x08) ? PSTR("true") : PSTR("false"),
+                  (capabilities & 0x40) ? PSTR("true") : PSTR("false")
                   );
   // query the state of the bulb (for Alexa)
   uint32_t wait_ms = 2000;    // wait for 2s
@@ -371,18 +450,15 @@ int32_t Z_BindRsp(int32_t res, const class SBuffer &buf) {
   uint8_t           status = buf.get8(4);
 
   const char * friendlyName = zigbee_devices.getFriendlyName(nwkAddr);
+
+  Response_P(PSTR("{\"" D_JSON_ZIGBEE_BIND "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""), nwkAddr);
   if (friendlyName) {
-    Response_P(PSTR("{\"" D_JSON_ZIGBEE_BIND "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
-                    ",\"" D_JSON_ZIGBEE_NAME "\":\"%s\""
-                    ",\"" D_JSON_ZIGBEE_STATUS "\":%d"
-                    ",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
-                    "}}"), nwkAddr, friendlyName, status, getZigbeeStatusMessage(status).c_str());
-  } else {
-    Response_P(PSTR("{\"" D_JSON_ZIGBEE_BIND "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
-                    ",\"" D_JSON_ZIGBEE_STATUS "\":%d"
-                    ",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
-                    "}}"), nwkAddr, status, getZigbeeStatusMessage(status).c_str());
+    ResponseAppend_P(PSTR(",\"" D_JSON_ZIGBEE_NAME "\":\"%s\""), friendlyName);
   }
+  ResponseAppend_P(PSTR(",\"" D_JSON_ZIGBEE_STATUS "\":%d"
+                  ",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
+                  "}}"), status, getZigbeeStatusMessage(status).c_str());
+
   MqttPublishPrefixTopic_P(RESULT_OR_TELE, PSTR(D_JSON_ZIGBEEZCL_RECEIVED));
   XdrvRulesProcess();
 
@@ -397,18 +473,14 @@ int32_t Z_UnbindRsp(int32_t res, const class SBuffer &buf) {
   uint8_t           status = buf.get8(4);
 
   const char * friendlyName = zigbee_devices.getFriendlyName(nwkAddr);
+
+  Response_P(PSTR("{\"" D_JSON_ZIGBEE_UNBIND "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""), nwkAddr);
   if (friendlyName) {
-    Response_P(PSTR("{\"" D_JSON_ZIGBEE_UNBIND "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
-                    ",\"" D_JSON_ZIGBEE_NAME "\":\"%s\""
-                    ",\"" D_JSON_ZIGBEE_STATUS "\":%d"
-                    ",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
-                    "}}"), nwkAddr, friendlyName, status, getZigbeeStatusMessage(status).c_str());
-  } else {
-    Response_P(PSTR("{\"" D_JSON_ZIGBEE_UNBIND "\":{\"" D_JSON_ZIGBEE_DEVICE "\":\"0x%04X\""
-                    ",\"" D_JSON_ZIGBEE_STATUS "\":%d"
-                    ",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
-                    "}}"), nwkAddr, status, getZigbeeStatusMessage(status).c_str());
+    ResponseAppend_P(PSTR(",\"" D_JSON_ZIGBEE_NAME "\":\"%s\""), friendlyName);
   }
+  ResponseAppend_P(PSTR(",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
+                  "}}"), status, getZigbeeStatusMessage(status).c_str());
+
   MqttPublishPrefixTopic_P(RESULT_OR_TELE, PSTR(D_JSON_ZIGBEEZCL_RECEIVED));
   XdrvRulesProcess();
 
@@ -433,7 +505,6 @@ int32_t Z_MgmtBindRsp(int32_t res, const class SBuffer &buf) {
   ResponseAppend_P(PSTR(",\"" D_JSON_ZIGBEE_STATUS "\":%d"
                         ",\"" D_JSON_ZIGBEE_STATUS_MSG "\":\"%s\""
                         ",\"BindingsTotal\":%d"
-                        //",\"BindingsStart\":%d"
                         ",\"Bindings\":["
                         ), status, getZigbeeStatusMessage(status).c_str(), bind_total);
 
@@ -526,15 +597,17 @@ void Z_SendAFInfoRequest(uint16_t shortaddr) {
 
 // Aqara Occupancy behavior: the Aqara device only sends Occupancy: true events every 60 seconds.
 // Here we add a timer so if we don't receive a Occupancy event for 90 seconds, we send Occupancy:false
-void Z_AqaraOccupancy(uint16_t shortaddr, uint16_t cluster, uint8_t endpoint, const JsonObject *json) {
+void Z_AqaraOccupancy(uint16_t shortaddr, uint16_t cluster, uint8_t endpoint, const JsonObject &json) {
   static const uint32_t OCCUPANCY_TIMEOUT = 90 * 1000;  // 90 s
   // Read OCCUPANCY value if any
-  const JsonVariant &val_endpoint = getCaseInsensitive(*json, PSTR(OCCUPANCY));
+  const JsonVariant &val_endpoint = GetCaseInsensitive(json, PSTR(OCCUPANCY));
   if (nullptr != &val_endpoint) {
     uint32_t occupancy = strToUInt(val_endpoint);
 
     if (occupancy) {
-      zigbee_devices.setTimer(shortaddr, 0 /* groupaddr */, OCCUPANCY_TIMEOUT, cluster, endpoint, Z_CAT_VIRTUAL_ATTR, 0, &Z_OccupancyCallback);
+      zigbee_devices.setTimer(shortaddr, 0 /* groupaddr */, OCCUPANCY_TIMEOUT, cluster, endpoint, Z_CAT_VIRTUAL_OCCUPANCY, 0, &Z_OccupancyCallback);
+    } else {
+      zigbee_devices.resetTimersForDevice(shortaddr, 0 /* groupaddr */, Z_CAT_VIRTUAL_OCCUPANCY);
     }
   }
 }
@@ -544,8 +617,6 @@ void Z_AqaraOccupancy(uint16_t shortaddr, uint16_t cluster, uint8_t endpoint, co
 int32_t Z_PublishAttributes(uint16_t shortaddr, uint16_t groupaddr, uint16_t cluster, uint8_t endpoint, uint32_t value) {
   const JsonObject *json = zigbee_devices.jsonGet(shortaddr);
   if (json == nullptr) { return 0; }                 // don't crash if not found
-  // Post-provess for Aqara Presence Senson
-  Z_AqaraOccupancy(shortaddr, cluster, endpoint, json);
 
   zigbee_devices.jsonPublishFlush(shortaddr);
   return 1;
@@ -558,7 +629,7 @@ int32_t Z_PublishAttributes(uint16_t shortaddr, uint16_t groupaddr, uint16_t clu
 int32_t Z_ReceiveAfIncomingMessage(int32_t res, const class SBuffer &buf) {
   uint16_t        groupid = buf.get16(2);
   uint16_t        clusterid = buf.get16(4);
-  Z_ShortAddress  srcaddr = buf.get16(6);
+  uint16_t        srcaddr = buf.get16(6);
   uint8_t         srcendpoint = buf.get8(8);
   uint8_t         dstendpoint = buf.get8(9);
   uint8_t         wasbroadcast = buf.get8(10);
@@ -613,6 +684,9 @@ int32_t Z_ReceiveAfIncomingMessage(int32_t res, const class SBuffer &buf) {
     zigbee_devices.resetTimersForDevice(srcaddr, 0 /* groupaddr */, Z_CAT_REACHABILITY);    // remove any reachability timer already there
     zigbee_devices.setReachable(srcaddr, true);     // mark device as reachable
 
+    // Post-provess for Aqara Presence Senson
+    Z_AqaraOccupancy(srcaddr, clusterid, srcendpoint, json);
+
     if (defer_attributes) {
       // Prepare for publish
       if (zigbee_devices.jsonIsConflict(srcaddr, json)) {
@@ -638,6 +712,7 @@ typedef struct Z_Dispatcher {
 // Ffilters based on ZNP frames
 ZBM(AREQ_AF_DATA_CONFIRM, Z_AREQ | Z_AF, AF_DATA_CONFIRM)                   // 4480
 ZBM(AREQ_AF_INCOMING_MESSAGE, Z_AREQ | Z_AF, AF_INCOMING_MSG)               // 4481
+// ZBM(AREQ_STATE_CHANGE_IND, Z_AREQ | Z_ZDO, ZDO_STATE_CHANGE_IND)            // 45C0
 ZBM(AREQ_END_DEVICE_ANNCE_IND, Z_AREQ | Z_ZDO, ZDO_END_DEVICE_ANNCE_IND)    // 45C1
 ZBM(AREQ_END_DEVICE_TC_DEV_IND, Z_AREQ | Z_ZDO, ZDO_TC_DEV_IND)             // 45CA
 ZBM(AREQ_PERMITJOIN_OPEN_XX, Z_AREQ | Z_ZDO, ZDO_PERMIT_JOIN_IND )          // 45CB
@@ -652,6 +727,7 @@ ZBM(AREQ_ZDO_MGMT_BIND_RSP, Z_AREQ | Z_ZDO, ZDO_MGMT_BIND_RSP)              // 4
 const Z_Dispatcher Z_DispatchTable[] PROGMEM = {
   { AREQ_AF_DATA_CONFIRM,         &Z_DataConfirm },
   { AREQ_AF_INCOMING_MESSAGE,     &Z_ReceiveAfIncomingMessage },
+  // { AREQ_STATE_CHANGE_IND,        &Z_ReceiveStateChange },
   { AREQ_END_DEVICE_ANNCE_IND,    &Z_ReceiveEndDeviceAnnonce },
   { AREQ_END_DEVICE_TC_DEV_IND,   &Z_ReceiveTCDevInd },
   { AREQ_PERMITJOIN_OPEN_XX,      &Z_ReceivePermitJoinStatus },

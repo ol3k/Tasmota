@@ -1,16 +1,114 @@
 ## Unreleased (development)
 
+### 8.3.1.2 20200522
+
+- Change Energy JSON Total field from ``"Total":[33.736,11.717,16.978]`` to ``"Total":33.736,"TotalTariff":[11.717,16.978]``
+- Change Energy JSON ExportActive field from ``"ExportActive":[33.736,11.717,16.978]`` to ``"ExportActive":33.736,"ExportTariff":[11.717,16.978]``
+- Change Adafruit_SGP30 library from v1.0.3 to v1.2.0 (#8519)
+- Fix escape of non-JSON received serial data (#8329)
+- Add command ``Time 4`` to display timestamp using milliseconds (#8537)
+- Add commands ``LedPwmOn 0..255``, ``LedPwmOff 0..255`` and ``LedPwmMode1 0/1`` to control led brightness by George (#8491)
+- Add Three Phase Export Active Energy to SDM630 driver
+- Add wildcard pattern ``?`` for JSON matching in rules
+- Add support for unique MQTTClient (and inherited fallback topic) by full Mac address using ``mqttclient DVES_%12X`` (#8300)
+
+### 8.3.1.1 20200518
+
+- Change IRremoteESP8266 library updated to v2.7.7
+- Add command ``Rule0`` to change global rule parameters
+- Add more functionality to ``Switchmode`` 11 and 12 (#8450)
+- Add dump of compressed rules over 512 chars and unishox decompress fix
+- Add support for VEML6075 UVA/UVB/UVINDEX Sensor by device111 (#8432)
+- Add support for VEML7700 Ambient light intensity Sensor by device111 (#8432)
+
+## Released
+
+### 8.3.1 20200518
+
+- Release Fred
+
+### 8.3.0.2 20200517
+
+- Change Hass discovery from using template name to new Device name (#8462)
+- Add command ``DeviceName`` defaults to FriendlyName1 and replaces FriendlyName1 in GUI
+
+### 8.3.0.1 20200514
+
+- Change KNX pow function to approximative pow saving 5k of code space
+- Change Mutichannel Gas sensor pow function to approximative pow saving 5k of code space
+- Change Quick Power Cycle detection from 4 to 7 power interrupts (#4066)
+- Fix default state of ``SetOption73 0`` for button decoupling and send multi-press and hold MQTT messages
+
+## Released
+
+### 8.3.0 20200514
+
+- Release Fred
+
+### 8.2.0.6 20200501
+
+- Add experimental basic support for Tasmota on ESP32 based on work by Jörg Schüler-Maroldt
+- Add support for analog anemometer by Matteo Albinola (#8283)
+- Add support for OpenTherm by Yuriy Sannikov (#8373)
+- Add support for Thermostat control by arijav (#8212)
+- Add automatic compression of Rules to achieve ~60% compression by Stefan Hadinger
+- Add command ``SetOption93 1`` to control caching of compressed rules
+- Add rule trigger at root level like ``on loadavg<50 do power 2 endon`` after ``state`` command
+- Change flash access removing support for any Core before 2.6.3
+- Change HAss discovery by Federico Leoni (#8370)
+- Change default PWM Frequency to 977 Hz from 223 Hz
+- Change minimum PWM Frequency from 100 Hz to 40 Hz
+- Change PWM updated to the latest version of Arduino PR #7231
+- Change Philips Hue emulation now exposes modelId and manufacturerId
+- Add Zigbee support for router and end-device mode
+
+### 8.2.0.5 20200425
+
+- Breaking Change Device Groups multicast address and port  (#8270)
+- Change IRremoteESP8266 library updated to v2.7.6
+
+### 8.2.0.4 20200417
+
+- Change PWM implementation to Arduino #7231 removing support for Core versions before 2.6.3
+- Change default PWM Frequency to 223 Hz instead of 880 Hz for less interrupt pressure
+- Fix Zigbee DimmerUp/DimmerDown malformed
+- Add config version tag
+- Add command ``SetOption73 1`` for button decoupling and send multi-press and hold MQTT messages by Federico Leoni (#8235)
+- Add command ``SetOption92 1`` to set PWM Mode from regular PWM to ColorTemp control (Xiaomi Philips ...)
+- Add command ``SO`` as shortcut for command ``SetOption``
+
 ### 8.2.0.3 20200329
 
 - Change light scheme 2,3,4 cycle time speed from 24,48,72,... seconds to 4,6,12,24,36,48,... seconds (#8034)
 - Change remove floating point libs from IRAM
 - Change remove MQTT Info messages on restart for DeepSleep Wake (#8044)
+- Change IRremoteESP8266 library updated to v2.7.5
+- Fix PWM flickering during wifi connection (#8046)
+- Fix Zigbee crash with Occupancy sensor (#8089)
 - Add support for longer template names
 - Add Zigbee command ``ZbBindState`` and ``manuf``attribute
+- Add Zigbee command ``ZbConfig`` and configuration in Settings
 - Add commands ``CounterDebounceLow`` and ``CounterDebounceHigh`` to control debouncing (#8021)
+- Add commands ``NrfPage``, ``NrfIgnore``, ``NrfScan`` and ``NrfBeacon`` to NRF24 Bluetooth driver (#8075)
 - Add command ``SetOption90 1`` to disable non-json MQTT messages (#8044)
 - Add command ``Sensor10 0/1/2`` to control BH1750 resolution - 0 = High (default), 1 = High2, 2 = Low (#8016)
 - Add command ``Sensor10 31..254`` to control BH1750 measurement time which defaults to 69 (#8016)
+- Add command ``Sensor18 0..32000`` to control PMS5003 sensor interval to extend lifetime by Gene Ruebsamen (#8128)
+- Add command ``SetOption91 1`` to enable fading at startup / power on
+- Add command ``SetOption41 <x>`` to force sending gratuitous ARP every <x> seconds
+- Add command ``DevGroupName`` to specify up to four Device Group Names (#8087)
+- Add command ``DevGroupSend`` to send an update to a Device Group (#8093)
+- Add command ``Ping`` (#7176)
+- Add command ``Palette`` to add the ability to specify a palette of colors (#8150)
+- Add commands ``GlobalTemp`` and ``GlobalHum`` to init sensor data (#8152)
+- Add quick wifi reconnect using saved AP parameters when ``SetOption56 0`` (#3189)
+- Add more accuracy to GPS NTP server (#8088)
+- Add support for an iAQ sensor (#8107)
+- Add support for Seven Segment display using HT16K33 (#8116)
+- Add support for AS3935 Lightning Sensor by device111 (#8130)
+- Fix prevent multiple pings to run concurrently
+- Fix Scheme 2-4 brightness when SetOption68 1 (#8058)
+- Add ``DimmerRange`` for PWM lights (#8120)
 
 ### 8.2.0.2 20200328
 
